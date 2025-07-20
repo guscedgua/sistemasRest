@@ -1,12 +1,13 @@
-// backend/controllers/authController.js
-import User from '../models/User.js';
+// backend/middleware/auth.js
+// Middlewares para autenticación (verificación de token) y autorización (verificación de rol).
+import jwt from 'jsonwebtoken';
 import RefreshToken from '../models/RefreshToken.js';
+import User from '../models/User.js';
 import {
     generateAccessToken,
     generateRefreshToken,
     createSessionId,
 } from '../utils/generateTokens.js';
-import jwt from 'jsonwebtoken';
 import { ROLES } from '../config/roles.js'; // Asegúrate que este archivo existe y exporta ROLES
 
 /**
@@ -95,26 +96,43 @@ export const registerUser = async (req, res) => {
 
 
 export const login = async (req, res) => {
+    // --- NUEVOS LOGS DE DEPURACIÓN AL INICIO DE LA FUNCIÓN ---
+    console.log('--- LOGIN CONTROLLER ---');
+    console.log('DEBUG Login Controller: Request Headers:', req.headers);
+    console.log('DEBUG Login Controller: Request Body (after express.json):', req.body);
+    // --- FIN NUEVOS LOGS ---
+
     try {
         const { email, password } = req.body;
         if (!email || !password) {
+            console.log('DEBUG Login: Email o contraseña faltantes.');
             return res.status(400).json({ success: false, message: "Email y contraseña son requeridos" });
         }
+        console.log(`DEBUG Login: Intentando login para email: ${email}`);
         const user = await User.findOne({ email });
         if (!user) {
+            console.log('DEBUG Login: Usuario no encontrado.');
             return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
         }
+        console.log(`DEBUG Login: Usuario encontrado: ${user.email}`);
+        console.log('Contraseña plana (candidatePassword):', password);
+        console.log('Contraseña hasheada almacenada (this.password):', user.password); // No mostrar en producción
         const isMatch = await user.comparePassword(password);
+        console.log('DEBUG Login: Resultado comparación contraseña (isMatch):', isMatch);
         if (!isMatch) {
+            console.log('DEBUG Login: Contraseña incorrecta.');
             return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
         }
+        console.log(`DEBUG Login: Contraseña correcta para usuario: ${user.email}`);
 
         const sessionId = createSessionId();
         user.sessionId = sessionId;
         await user.save();
+        console.log('DEBUG Login: SessionId asignado y usuario guardado.');
 
         const accessToken = generateAccessToken(user, sessionId);
         const refreshToken = generateRefreshToken(user, sessionId);
+        console.log('DEBUG Login: Access y Refresh tokens generados.');
 
         const refreshExpiresDays = parseInt(process.env.JWT_REFRESH_COOKIE_EXPIRE || 7);
         const expiresAtDb = new Date();
@@ -126,19 +144,18 @@ export const login = async (req, res) => {
             sessionId,
             expiresAt: expiresAtDb
         });
+        console.log('DEBUG Login: RefreshToken guardado en DB.');
 
         const cookieOptions = {
             expires: new Date(Date.now() + refreshExpiresDays * 24 * 60 * 60 * 1000),
             httpOnly: true,
-            // Determinar 'secure' basado en el entorno
             secure: process.env.NODE_ENV === 'production',
-            // 'SameSite' debe ser 'None' si 'secure' es true (para cross-site)
-            // o 'Lax' para desarrollo en el mismo sitio (localhost)
             sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Lax',
             path: '/'
         };
 
         res.cookie('refreshToken', refreshToken, cookieOptions);
+        console.log('DEBUG Login: Cookie de refreshToken establecida.');
 
         res.status(200).json({
             success: true,
@@ -151,13 +168,14 @@ export const login = async (req, res) => {
                 email: user.email
             }
         });
+        console.log('DEBUG Login: Respuesta de login enviada.');
 
     } catch (error) {
         console.error('Login error (Backend):', error);
         res.status(500).json({
             success: false,
             message: 'Error en el servidor al iniciar sesión',
-            systemError: process.env.NODE_ENV === 'development' ? error.message : 'Error interno del servidor',
+            systemError: process.ENV.NODE_ENV === 'development' ? error.message : 'Error interno del servidor',
         });
     }
 };
@@ -318,6 +336,7 @@ export const refreshTokenMiddleware = async (req, res) => {
  * Exportado como 'auth'
  */
 export const auth = async (req, res, next) => {
+    console.log('--- AUTH MIDDLEWARE ---');
     try {
         // Verificar cabecera de autorización
         const authHeader = req.headers.authorization;
@@ -359,10 +378,16 @@ export const auth = async (req, res, next) => {
         } catch (verifyError) {
             // Manejar token expirado intentando refrescar
             if (verifyError.name === 'TokenExpiredError') {
-                console.log('Access Token expirado, intentando refrescar...');
-                // IMPORTANTE: Llama a refreshTokenMiddleware directamente y RETORNA.
-                // refreshTokenMiddleware es responsable de enviar la respuesta.
-                return refreshTokenMiddleware(req, res);
+                console.log('Access Token expirado, devolviendo 401 para que el frontend lo maneje.');
+                // --- CORRECCIÓN CLAVE AQUÍ ---
+                // NO LLAMAR DIRECTAMENTE A refreshTokenMiddleware.
+                // Devolver un 401 con un código específico para que el frontend lo intercepte.
+                return res.status(401).json({
+                    success: false,
+                    code: 'TOKEN_EXPIRED',
+                    message: 'Token de acceso expirado. Por favor, refresque la sesión.'
+                });
+                // --- FIN CORRECCIÓN ---
             }
 
             // Si no es un token expirado, pero es inválido por otra razón

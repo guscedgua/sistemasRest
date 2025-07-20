@@ -1,58 +1,29 @@
-// backend/routes/dashboardRoutes.js
-// Rutas para los endpoints de resumen del dashboard.
-
+// backend/routers/dashboardRoutes.js
 import express from 'express';
-// Importa los controladores del dashboard
-import { 
-    getOrdersTodaySummary,
-    getTotalSalesSummary,
-    getTablesStatusSummary
-} from '../controllers/dashboardController.js'; 
-// Importa tus middlewares de autenticación y autorización
-// Se ha cambiado 'authorize' por 'roleCheck' ya que es el nombre correcto del middleware genérico de roles.
-import { auth, roleCheck } from '../middleware/auth.js'; 
-import { ROLES } from '../config/roles.js'; // Importa la definición de roles
-
 const router = express.Router();
 
-// Todas las rutas del dashboard están protegidas y solo son accesibles por roles específicos.
-// Se usa 'auth' para asegurar que el usuario está autenticado.
-// Se usa 'roleCheck' con un array de ROLES permitidos para controlar el acceso.
+// CORRECCIÓN: Importa el controlador principal que maneja todas las métricas
+import { getDashboardMetrics } from '../controllers/dashboardController.js';
+// Importa los middlewares de autenticación y autorización
+import { auth, roleCheck, adminCheck, supervisorCheck, meseroCheck, cocineroCheck } from '../middleware/auth.js';
 
 /**
- * Ruta para obtener el resumen de órdenes de hoy.
- * @route GET /api/dashboard/summary/ordersToday
- * @access Private (admin, supervisor, mesero, cocinero)
+ * @route GET /api/dashboard?metric=<metricName>
+ * @desc Obtener métricas del dashboard (órdenes hoy, ventas, estado de mesas, etc.)
+ * @access Private (roles específicos)
  */
 router.get(
-    '/summary/ordersToday', 
-    auth, 
-    roleCheck([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.MESERO, ROLES.COCINERO]), // Usamos 'roleCheck' aquí
-    getOrdersTodaySummary
+  '/',
+  auth, // Asegura que el usuario esté autenticado
+  roleCheck([
+    // Define los roles que pueden acceder a las métricas del dashboard
+    // Puedes ajustar esto según tus necesidades de seguridad
+    'admin',
+    'supervisor',
+    'mesero',
+    'cocinero'
+  ]),
+  getDashboardMetrics // CORRECCIÓN: El controlador que maneja la lógica de las métricas
 );
 
-/**
- * Ruta para obtener el resumen de ventas totales.
- * @route GET /api/dashboard/summary/totalSales
- * @access Private (admin, supervisor, mesero)
- */
-router.get(
-    '/summary/totalSales', 
-    auth, 
-    roleCheck([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.MESERO]), // Usamos 'roleCheck' aquí
-    getTotalSalesSummary
-);
-
-/**
- * Ruta para obtener el resumen del estado de las mesas (ocupadas vs. total).
- * @route GET /api/dashboard/summary/tablesStatus
- * @access Private (admin, supervisor, mesero)
- */
-router.get(
-    '/summary/tablesStatus', 
-    auth, 
-    roleCheck([ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.MESERO]), // Usamos 'roleCheck' aquí
-    getTablesStatusSummary
-);
-
-export default router; 
+export default router;

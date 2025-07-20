@@ -58,8 +58,7 @@ export const registerUser = async (req, res) => {
             token: refreshToken,
             user: user._id,
             sessionId,
-            expiresAt: expiresAtDb,
-            revoked: false // Establecer explícitamente revoked a false
+            expiresAt: expiresAtDb
         });
 
         const cookieOptions = {
@@ -96,37 +95,43 @@ export const registerUser = async (req, res) => {
 
 
 export const login = async (req, res) => {
+    // --- NUEVOS LOGS DE DEPURACIÓN AL INICIO DE LA FUNCIÓN ---
     console.log('--- LOGIN CONTROLLER ---');
+    console.log('DEBUG Login Controller: Request Headers:', req.headers);
+    console.log('DEBUG Login Controller: Request Body (after express.json):', req.body);
+    // --- FIN NUEVOS LOGS ---
+
     try {
         const { email, password } = req.body;
-        console.log('DEBUG Login: Intentando login para email:', email); // Log: email recibido
-
         if (!email || !password) {
-            console.log('DEBUG Login: Email o contraseña faltantes. Status 400.');
+            console.log('DEBUG Login: Email o contraseña faltantes.');
             return res.status(400).json({ success: false, message: "Email y contraseña son requeridos" });
         }
-
+        console.log(`DEBUG Login: Intentando login para email: ${email}`);
         const user = await User.findOne({ email });
         if (!user) {
-            console.log('DEBUG Login: Usuario no encontrado para email:', email, '. Status 401.'); // Log: usuario no encontrado
+            console.log('DEBUG Login: Usuario no encontrado.');
             return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
         }
-        console.log('DEBUG Login: Usuario encontrado:', user.email); // Log: usuario encontrado
-
+        console.log(`DEBUG Login: Usuario encontrado: ${user.email}`);
+        console.log('Contraseña plana (candidatePassword):', password);
+        console.log('Contraseña hasheada almacenada (this.password):', user.password); // No mostrar en producción
         const isMatch = await user.comparePassword(password);
-        console.log('DEBUG Login: Resultado comparación contraseña (isMatch):', isMatch); // Log: resultado de bcrypt.compare
+        console.log('DEBUG Login: Resultado comparación contraseña (isMatch):', isMatch);
         if (!isMatch) {
-            console.log('DEBUG Login: Contraseña incorrecta para usuario:', user.email, '. Status 401.'); // Log: contraseña incorrecta
+            console.log('DEBUG Login: Contraseña incorrecta.');
             return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
         }
-        console.log('DEBUG Login: Contraseña correcta para usuario:', user.email);
+        console.log(`DEBUG Login: Contraseña correcta para usuario: ${user.email}`);
 
         const sessionId = createSessionId();
         user.sessionId = sessionId;
         await user.save();
+        console.log('DEBUG Login: SessionId asignado y usuario guardado.');
 
         const accessToken = generateAccessToken(user, sessionId);
         const refreshToken = generateRefreshToken(user, sessionId);
+        console.log('DEBUG Login: Access y Refresh tokens generados.');
 
         const refreshExpiresDays = parseInt(process.env.JWT_REFRESH_COOKIE_EXPIRE || 7);
         const expiresAtDb = new Date();
@@ -136,9 +141,9 @@ export const login = async (req, res) => {
             token: refreshToken,
             user: user._id,
             sessionId,
-            expiresAt: expiresAtDb,
-            revoked: false // Establecer explícitamente revoked a false
+            expiresAt: expiresAtDb
         });
+        console.log('DEBUG Login: RefreshToken guardado en DB.');
 
         const cookieOptions = {
             expires: new Date(Date.now() + refreshExpiresDays * 24 * 60 * 60 * 1000),
@@ -149,7 +154,7 @@ export const login = async (req, res) => {
         };
 
         res.cookie('refreshToken', refreshToken, cookieOptions);
-        console.log('DEBUG Login: Login exitoso. Tokens generados y cookie establecida.');
+        console.log('DEBUG Login: Cookie de refreshToken establecida.');
 
         res.status(200).json({
             success: true,
@@ -162,9 +167,10 @@ export const login = async (req, res) => {
                 email: user.email
             }
         });
+        console.log('DEBUG Login: Respuesta de login enviada.');
 
     } catch (error) {
-        console.error('Login error (Backend - INESPERADO):', error);
+        console.error('Login error (Backend):', error);
         res.status(500).json({
             success: false,
             message: 'Error en el servidor al iniciar sesión',
@@ -177,121 +183,103 @@ export const login = async (req, res) => {
  * Middleware para refrescar tokens
  */
 export const refreshTokenMiddleware = async (req, res) => {
+    const storedRefreshToken = req.cookies?.refreshToken;
     console.log('--- REFRESH TOKEN MIDDLEWARE ---');
+    console.log('Refresh Token recibido en cookies:', storedRefreshToken ? 'Sí' : 'No');
+    if (storedRefreshToken) {
+        console.log('Primeros 10 caracteres del Refresh Token:', storedRefreshToken.substring(0, 10) + '...');
+    }
+
+    const commonCookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Lax',
+        path: '/'
+    };
+
+    if (!storedRefreshToken) {
+        console.log('ERROR: NO_REFRESH_TOKEN - No se encontró el token en las cookies.');
+        return res.status(403).json({
+            success: false,
+            code: 'NO_REFRESH_TOKEN',
+            message: 'No se encontró el token de refresco en las cookies.'
+        });
+    }
+
     try {
-        // 1. Obtener token de las cookies
-        const storedRefreshToken = req.cookies?.refreshToken;
-        console.log('Refresh Token recibido en cookies:', storedRefreshToken ? 'Sí' : 'No');
-        if (storedRefreshToken) {
-            console.log('Primeros 10 caracteres del Refresh Token:', storedRefreshToken.substring(0, 10) + '...');
-        }
-
-        const commonCookieOptions = {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Lax',
-            path: '/'
-        };
-
-        if (!storedRefreshToken) {
-            console.log('ERROR: NO_REFRESH_TOKEN - No se encontró el token en las cookies.');
-            return res.status(401).json({
-                success: false,
-                code: 'MISSING_REFRESH_TOKEN',
-                message: 'Refresh token no proporcionado en las cookies.'
-            });
-        }
-
-        // 2. Buscar token en DB con verificación de vigencia y que no esté revocado
         const storedTokenDoc = await RefreshToken.findOne({
             token: storedRefreshToken,
-            $or: [ // Manejar documentos antiguos con 'revoked' undefined o false
-                { revoked: false },
-                { revoked: { $exists: false } }
-            ],
-            expiresAt: { $gt: new Date() } // Asegurarse de que no esté expirado
+            revoked: false
         }).populate('user');
 
-        // --- NUEVO LOG DE DEPURACIÓN ---
-        console.log('DEBUG: Resultado de RefreshToken.findOne:', storedTokenDoc ? JSON.stringify(storedTokenDoc.toObject(), null, 2) : 'No encontrado');
-        // --- FIN NUEVO LOG ---
-
-        // 3. Manejar token inválido (no encontrado, revocado o expirado en DB)
-        if (!storedTokenDoc) {
+        if (!storedTokenDoc || !storedTokenDoc.user) {
             res.clearCookie('refreshToken', commonCookieOptions);
-            // Registrar detalles para diagnóstico
-            const foundTokenWithoutFilters = await RefreshToken.findOne({ token: storedRefreshToken });
-            console.warn(
-                'ERROR: INVALID_REFRESH_TOKEN_DB - Token no encontrado en DB o no cumple las condiciones.',
-                foundTokenWithoutFilters
-                    ? `Expirado: ${foundTokenWithoutFilters.expiresAt < new Date()} | Revocado: ${foundTokenWithoutFilters.revoked} | Usuario asociado: ${!!foundTokenWithoutFilters.user}`
-                    : 'Token no existe en DB (quizás ya fue eliminado).'
-            );
-            return res.status(401).json({
+            console.log('ERROR: INVALID_REFRESH_TOKEN_DB - Token no encontrado en DB, revocado o sin usuario asociado.');
+            return res.status(403).json({
                 success: false,
                 code: 'INVALID_REFRESH_TOKEN_DB',
-                message: 'Token de refresco inválido o expirado.'
-            });
-        }
-
-        // 4. Verificar usuario asociado (si el populate falló o el usuario fue eliminado)
-        if (!storedTokenDoc.user) {
-            await RefreshToken.deleteOne({ token: storedRefreshToken }); // Eliminar el token si no tiene un usuario válido
-            console.log('ERROR: USER_NOT_FOUND - Usuario asociado al token no existe o fue eliminado. Token de refresco eliminado.');
-            return res.status(401).json({
-                success: false,
-                code: 'USER_NOT_FOUND',
-                message: 'Usuario asociado al token no existe.'
+                message: 'Token de refresco inválido o revocado (no encontrado en DB o sin usuario asociado).'
             });
         }
         console.log('Token encontrado en DB. Usuario asociado:', storedTokenDoc.user.email);
         console.log('Token DB expira en:', storedTokenDoc.expiresAt);
+        if (storedTokenDoc.expiresAt < new Date()) {
+            await storedTokenDoc.deleteOne(); // Eliminar token expirado
+            res.clearCookie('refreshToken', commonCookieOptions);
+            console.log('ERROR: REFRESH_TOKEN_EXPIRED_DB - El token de refresco en la DB ha expirado.');
+            return res.status(403).json({
+                success: false,
+                code: 'REFRESH_TOKEN_EXPIRED_DB',
+                message: 'El token de refresco ha expirado y ha sido invalidado.'
+            });
+        }
 
 
-        // 5. Validar JWT del refresh token (firma y estructura)
         let decoded;
         try {
             decoded = jwt.verify(storedRefreshToken, process.env.REFRESH_TOKEN_SECRET);
             console.log('Token JWT verificado. Decodificado ID:', decoded.id, 'SessionId:', decoded.sessionId);
-        } catch (verifyError) {
-            console.error('Error verificando refresh token (JWT):', verifyError.name, verifyError.message);
-            // Si el JWT es inválido, revocamos el token en la DB
-            await RefreshToken.updateOne(
-                { token: storedRefreshToken },
-                { revoked: true }
-            );
-            res.clearCookie('refreshToken', commonCookieOptions); // Limpiar la cookie también
-            return res.status(401).json({
+        } catch (err) {
+            await storedTokenDoc.deleteOne(); // Invalida el token en DB si el JWT es inválido
+            res.clearCookie('refreshToken', commonCookieOptions);
+
+            if (err.name === 'TokenExpiredError') {
+                console.log('ERROR: REFRESH_TOKEN_EXPIRED_JWT - El token JWT ha expirado.');
+                return res.status(403).json({
+                    success: false,
+                    code: 'REFRESH_TOKEN_EXPIRED_JWT',
+                    message: 'El token de refresco ha expirado y ha sido invalidado.'
+                });
+            }
+            console.log('ERROR: INVALID_REFRESH_TOKEN_JWT_VERIFICATION - Error de verificación JWT:', err.message);
+            return res.status(403).json({
                 success: false,
                 code: 'INVALID_REFRESH_TOKEN_JWT_VERIFICATION',
                 message: 'Token de refresco inválido (firma o formato incorrecto).'
             });
         }
 
-        // 6. Verificar coincidencia de sessionId (protección contra secuestro de sesión)
-        if (storedTokenDoc.sessionId !== decoded.sessionId) {
-            // Si hay un mismatch de sesión, revocar el token
-            await RefreshToken.updateOne(
-                { token: storedRefreshToken },
-                { revoked: true }
-            );
-            res.clearCookie('refreshToken', commonCookieOptions); // Limpiar la cookie también
-            console.log('ERROR: SESSION_MISMATCH - Mismatch de ID de sesión. Token de refresco revocado.');
-            return res.status(401).json({
+        if (storedTokenDoc.user._id.toString() !== decoded.id ||
+            storedTokenDoc.sessionId !== decoded.sessionId) {
+
+            await storedTokenDoc.deleteOne(); // Eliminar el token si hay un mismatch
+            res.clearCookie('refreshToken', commonCookieOptions);
+            console.log('ERROR: REFRESH_TOKEN_ID_MISMATCH - Mismatch de ID de usuario/sesión. Posible secuestro.');
+            return res.status(403).json({
                 success: false,
-                code: 'SESSION_MISMATCH',
-                message: 'Sesión inválida o terminada. Posible intento de secuestro.'
+                code: 'REFRESH_TOKEN_ID_MISMATCH',
+                message: 'Token de refresco no corresponde al usuario o sesión. Posible intento de secuestro.'
             });
         }
         console.log('Validación de ID de usuario/sesión exitosa.');
 
-        // 7. Generar nuevos tokens
+        // Generar nuevos tokens
         const newAccessToken = generateAccessToken(storedTokenDoc.user, storedTokenDoc.sessionId);
         const newRefreshToken = generateRefreshToken(storedTokenDoc.user, storedTokenDoc.sessionId);
 
-        // Rotación segura de tokens: Eliminar el token antiguo de la DB
-        await storedTokenDoc.deleteOne();
-        console.log('Token de refresco antiguo eliminado de la DB.');
+        // Marcar el token antiguo como revocado en la DB (o eliminarlo)
+        storedTokenDoc.revoked = true; // O elimina el documento: await storedTokenDoc.deleteOne();
+        await storedTokenDoc.save(); // Si lo marcas como revocado y lo mantienes
 
         // Crear el nuevo refresh token en la DB
         const refreshExpiresDays = parseInt(process.env.JWT_REFRESH_COOKIE_EXPIRE || 7);
@@ -332,11 +320,11 @@ export const refreshTokenMiddleware = async (req, res) => {
 
     } catch (error) {
         console.error('Refresh Token Middleware error INESPERADO:', error);
-        if (!res.headersSent) {
+        if (!res.headersSent) { // Prevenir error "Headers already sent"
             res.status(500).json({
                 success: false,
-                code: 'REFRESH_TOKEN_SERVER_ERROR',
-                message: 'Error interno del servidor al refrescar token.'
+                code: 'REFRESH_TOKEN_ERROR_UNEXPECTED',
+                message: 'Error inesperado al refrescar token.'
             });
         }
     }
@@ -349,9 +337,9 @@ export const refreshTokenMiddleware = async (req, res) => {
 export const auth = async (req, res, next) => {
     console.log('--- AUTH MIDDLEWARE ---');
     try {
+        // Verificar cabecera de autorización
         const authHeader = req.headers.authorization;
         if (!authHeader) {
-            console.log('DEBUG Auth: No Authorization header provided.');
             return res.status(401).json({
                 success: false,
                 code: 'MISSING_TOKEN',
@@ -359,14 +347,14 @@ export const auth = async (req, res, next) => {
             });
         }
 
+        // Extraer token
         const tokenParts = authHeader.split(' ');
         let token;
         if (tokenParts.length === 2 && tokenParts[0].toLowerCase() === 'bearer') {
             token = tokenParts[1];
-        } else if (tokenParts.length === 1) {
+        } else if (tokenParts.length === 1) { // Permite token sin prefijo "Bearer"
             token = tokenParts[0];
         } else {
-            console.log('DEBUG Auth: Invalid token format.');
             return res.status(401).json({
                 success: false,
                 code: 'INVALID_TOKEN_FORMAT',
@@ -375,7 +363,6 @@ export const auth = async (req, res, next) => {
         }
 
         if (!token) {
-            console.log('DEBUG Auth: Empty token.');
             return res.status(401).json({
                 success: false,
                 code: 'EMPTY_TOKEN',
@@ -383,18 +370,27 @@ export const auth = async (req, res, next) => {
             });
         }
 
+        // Verificar token de acceso
         let decoded;
         try {
             decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-            console.log('DEBUG Auth: Access Token verificado. Decodificado ID:', decoded.id, 'SessionId:', decoded.sessionId);
         } catch (verifyError) {
+            // Manejar token expirado intentando refrescar
             if (verifyError.name === 'TokenExpiredError') {
-                console.log('DEBUG Auth: Access Token expirado, intentando refrescar...');
-                return refreshTokenMiddleware(req, res);
+                console.log('Access Token expirado, devolviendo 401 para que el frontend lo maneje.');
+                // --- CORRECCIÓN CLAVE AQUÍ ---
+                // NO LLAMAR DIRECTAMENTE A refreshTokenMiddleware.
+                // Devolver un 401 con un código específico para que el frontend lo intercepte.
+                return res.status(401).json({
+                    success: false,
+                    code: 'TOKEN_EXPIRED',
+                    message: 'Token de acceso expirado. Por favor, refresque la sesión.'
+                });
+                // --- FIN CORRECCIÓN ---
             }
 
+            // Si no es un token expirado, pero es inválido por otra razón
             if (verifyError.name === 'JsonWebTokenError') {
-                console.log('DEBUG Auth: Invalid JWT (JsonWebTokenError):', verifyError.message);
                 return res.status(401).json({
                     success: false,
                     code: 'INVALID_TOKEN',
@@ -402,7 +398,7 @@ export const auth = async (req, res, next) => {
                 });
             }
 
-            console.error('DEBUG Auth: Token verification error (unexpected):', verifyError);
+            // Otros errores de verificación de token
             return res.status(500).json({
                 success: false,
                 code: 'TOKEN_VERIFY_ERROR',
@@ -410,10 +406,10 @@ export const auth = async (req, res, next) => {
             });
         }
 
+        // Si el token de acceso es válido, procede con el resto de la lógica de 'auth'
         const user = await User.findById(decoded.id).select('role sessionId email name');
 
         if (!user) {
-            console.log('DEBUG Auth: User not found for decoded ID:', decoded.id);
             return res.status(401).json({
                 success: false,
                 code: 'USER_NOT_FOUND',
@@ -421,10 +417,11 @@ export const auth = async (req, res, next) => {
             });
         }
 
+        // Es importante asignar req.sessionId aquí si lo necesitas en otros middlewares
         req.sessionId = decoded.sessionId;
 
+        // Validar ID de sesión
         if (user.sessionId !== decoded.sessionId) {
-            console.log('DEBUG Auth: Session ID mismatch. User sessionId:', user.sessionId, 'Decoded sessionId:', decoded.sessionId);
             return res.status(401).json({
                 success: false,
                 code: 'INVALID_SESSION',
@@ -432,18 +429,18 @@ export const auth = async (req, res, next) => {
             });
         }
 
+        // Adjuntar usuario a la solicitud
         req.user = {
             id: user._id,
             role: user.role,
             name: user.name,
             email: user.email
         };
-        console.log('DEBUG Auth: Usuario autenticado y autorizado:', req.user.email, 'Rol:', req.user.role);
 
-        next();
+        next(); // Continúa con la siguiente función de middleware/ruta
     } catch (error) {
-        console.error('Auth Middleware error (unexpected):', error);
-        if (!res.headersSent) {
+        console.error('Auth Middleware error:', error);
+        if (!res.headersSent) { // Prevenir error "Headers already sent"
             res.status(500).json({
                 success: false,
                 code: 'SERVER_ERROR',
@@ -468,8 +465,6 @@ export const roleCheck = (allowedRoles = []) => {
 
         const userRole = req.user.role.toLowerCase();
         const normalizedAllowedRoles = new Set(allowedRoles.map(r => r.toLowerCase()));
-
-        console.log(`DEBUG RoleCheck: Usuario con rol '${userRole}' intentando acceder. Roles permitidos: [${Array.from(normalizedAllowedRoles).join(', ')}]`);
 
         if (normalizedAllowedRoles.has(userRole)) {
             return next();
@@ -500,9 +495,11 @@ export const clientCheck = roleCheck([ROLES.CLIENTE]);
  */
 export const getProfile = async (req, res) => {
     try {
+        // req.user ya está adjunto por el middleware 'auth'
         if (!req.user) {
             return res.status(404).json({ success: false, message: 'Usuario no encontrado en la solicitud.' });
         }
+        // Devuelve los datos del usuario adjuntos a req.user (sin contraseña)
         res.status(200).json({
             success: true,
             user: req.user
@@ -519,6 +516,7 @@ export const getProfile = async (req, res) => {
  * @access Private
  */
 export const logout = async (req, res) => {
+    // Opciones comunes para limpiar la cookie
     const commonCookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -526,17 +524,24 @@ export const logout = async (req, res) => {
         path: '/'
     };
 
+    // Asegúrate de que req.user y req.sessionId estén disponibles desde el middleware 'auth'
     if (!req.user || !req.user.id || !req.sessionId) {
+        // Si no hay información de usuario/sesión, simplemente limpia la cookie y responde.
+        // Esto puede ocurrir si el token de acceso ya no es válido y no hay refresh token,
+        // o si se llama logout sin un token válido.
         res.clearCookie('refreshToken', commonCookieOptions);
         return res.status(200).json({ success: true, message: 'Sesión cerrada (sin información de usuario/sesión válida para revocar).' });
     }
 
     try {
+        // Revocar el refresh token de la base de datos para la sesión actual
+        // Aquí es donde req.sessionId es crucial.
         await RefreshToken.findOneAndUpdate(
             { user: req.user.id, sessionId: req.sessionId, revoked: false },
             { revoked: true }
         );
 
+        // Limpiar la cookie del refresh token
         res.clearCookie('refreshToken', commonCookieOptions);
 
         res.status(200).json({ success: true, message: 'Sesión cerrada exitosamente.' });
@@ -552,6 +557,7 @@ export const logout = async (req, res) => {
  * @access Private (solo ADMIN o el propio usuario si tiene permiso)
  */
 export const logoutAllSessions = async (req, res) => {
+    // Opciones comunes para limpiar la cookie
     const commonCookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -560,16 +566,18 @@ export const logoutAllSessions = async (req, res) => {
     };
 
     if (!req.user || !req.user.id) {
-        res.clearCookie('refreshToken', commonCookieOptions);
+        res.clearCookie('refreshToken', commonCookieOptions); // Limpia la cookie por si acaso
         return res.status(401).json({ success: false, message: 'No autenticado para realizar esta acción.' });
     }
 
     try {
+        // Revocar todos los refresh tokens para el usuario
         await RefreshToken.updateMany(
             { user: req.user.id, revoked: false },
             { revoked: true }
         );
 
+        // Limpiar la cookie del refresh token de la respuesta actual, ya que todas las sesiones se cerrarán
         res.clearCookie('refreshToken', commonCookieOptions);
 
         res.status(200).json({ success: true, message: 'Todas las sesiones han sido cerradas.' });

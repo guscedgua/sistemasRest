@@ -1,104 +1,155 @@
 // backend/server.js
 import express from 'express';
 import dotenv from 'dotenv';
-import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import cors from 'cors';
 import path from 'path';
-import { fileURLToPath } from 'url';
+// CORRECCIÓN: Se eliminó el '=' extra en la importación de fileURLToPath
+import { fileURLToPath } from 'url'; 
+
+// Importar conexión a la base de datos
+import connectDB from './config/db.js';
 
 // Importar rutas
-import adminRoutes from './routers/adminRoutes.js';
 import authRoutes from './routers/authRoutes.js';
+import adminRoutes from './routers/adminRoutes.js';
 import configRoutes from './routers/configRoutes.js';
-import dashboardRoutes from './routers/dashboardRoutes.js';
 import ingredientRoutes from './routers/ingredientRoutes.js';
 import inventoryRoutes from './routers/inventoryRoutes.js';
 import kitchenRoutes from './routers/kitchenRoutes.js';
 import orderRoutes from './routers/orderRoutes.js';
 import productRoutes from './routers/productRoutes.js';
-import recipeRoutes from './routers/recipeRoutes.js'; // Corregido: recipeRoutes.js
-import reportRoutes from './routers/reportRoutes.js';
-import settingRoutes from './routers/settingRoutes.js';
-import supplierRoutes from './routers/supplierRoutes.js';
+import recipeRoutes from './routers/recipeRoutes.js';
 import tableRoutes from './routers/tableRoutes.js';
-import userRoutes from './routers/userRoutes.js';
+import dashboardRoutes from './routers/dashboardRoutes.js';
+// CORRECTED: Using the singular variable 'settingRoutes' for consistency
+import settingRoutes from './routers/settingRoutes.js'; 
+import reportRoutes from './routers/reportRoutes.js';
+import supplierRoutes from './routers/supplierRoutes.js';
+import userRoutes from './routers/userRoutes.js'; 
 
-// Configuración de dotenv para cargar variables de entorno
+// Importar middlewares de error
+import { errorHandler } from './middleware/errorHandler.js'; // CORRECCIÓN: Asegura que no haya '=' extra
+
 dotenv.config();
+connectDB();
 
 const app = express();
-// --- CORRECCIÓN AQUÍ: Asegúrate de que sea '||' (doble barra vertical) ---
-const PORT = process.env.PORT || 5000; 
-
-// Obtener __dirname para módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Middleware
+// --- Middlewares globales (CORS, JSON, URL-encoded, CookieParser) ---
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000', // Ajusta esto a tu frontend
-    credentials: true // Permite el envío de cookies
+    origin: (origin, callback) => {
+        const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+        // Si el origen no está presente (ej. para solicitudes directas o de Postman), o está en la lista permitida
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`Not allowed by CORS: ${origin}`), false);
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
-app.use(express.json()); // Para parsear cuerpos de solicitud JSON
-app.use(express.urlencoded({ extended: true })); // Para parsear cuerpos de solicitud URL-encoded
-app.use(cookieParser()); // Para parsear cookies
 
-// Rutas de la API
-app.use('/api/admin', adminRoutes);
+// CORRECCIÓN CLAVE: Se cambió '/{*any}' a '*' para compatibilidad con Express v4
+app.options('*', cors({
+    origin: (origin, callback) => {
+        const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+        // Si el origen no está presente (ej. para solicitudes directas o de Postman), o está en la lista permitida
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`Not allowed by CORS: ${origin}`), false);
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+
+// --- Definición de Rutas API ---
+console.log('--- Aplicando rutas API ---');
 app.use('/api/auth', authRoutes);
+console.log('Ruta /api/auth aplicada.');
+app.use('/api/admin', adminRoutes);
+console.log('Ruta /api/admin aplicada.');
 app.use('/api/config', configRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+console.log('Ruta /api/config aplicada.');
 app.use('/api/ingredients', ingredientRoutes);
+console.log('Ruta /api/ingredients aplicada.');
 app.use('/api/inventory', inventoryRoutes);
+console.log('Ruta /api/inventory aplicada.');
 app.use('/api/kitchen', kitchenRoutes);
+console.log('Ruta /api/kitchen aplicada.');
 app.use('/api/orders', orderRoutes);
+console.log('Ruta /api/orders aplicada.');
 app.use('/api/products', productRoutes);
+console.log('Ruta /api/products aplicada.');
 app.use('/api/recipes', recipeRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/settings', settingRoutes);
-app.use('/api/suppliers', supplierRoutes);
+console.log('Ruta /api/recipes aplicada.');
 app.use('/api/tables', tableRoutes);
+console.log('Ruta /api/tables aplicada.');
+app.use('/api/dashboard', dashboardRoutes);
+console.log('Ruta /api/dashboard aplicada.');
+// CORRECTED: Using the singular variable 'settingRoutes'
+app.use('/api/settings', settingRoutes); 
+console.log('Ruta /api/settings aplicada.');
+app.use('/api/reports', reportRoutes);
+console.log('Ruta /api/reports aplicada.');
+app.use('/api/suppliers', supplierRoutes);
+console.log('Ruta /api/suppliers aplicada.');
 app.use('/api/users', userRoutes);
+console.log('Ruta /api/users aplicada.');
+console.log('Rutas API aplicadas.');
 
-// Ruta de bienvenida para la API
-app.get('/', (req, res) => {
-    res.send('API del Sistema de Gestión de Restaurante está funcionando...');
-});
 
-// --- CORRECCIÓN CRÍTICA PARA EXPRESS V5 Y EL ERROR "Missing parameter name" ---
-// Esta ruta debe ir DESPUÉS de todas tus rutas API específicas.
-// Maneja cualquier ruta GET que no haya sido capturada por las rutas anteriores.
-// Si estás sirviendo archivos estáticos de un frontend, esta ruta podría apuntar a tu index.html
-// Por ejemplo, si tienes una carpeta 'frontend/build' con tu aplicación React/Angular/Vue:
-// app.use(express.static(path.join(__dirname, '../frontend/build')));
-// app.get('/{*any}', (req, res) => {
-//   res.sendFile(path.resolve(__dirname, '../frontend/build', 'index.html'));
-// });
-// Para un simple mensaje de API, como en tu ejemplo:
-app.get('/{*any}', (req, res) => { // Cambiado de '*' a '/{*any}'
-    res.status(200).send('API del Sistema de Gestión de Restaurante está funcionando (ruta comodín).');
-});
-
-// Middleware para manejar rutas no encontradas (404)
-// Este middleware debe ir DESPUÉS de todas tus rutas definidas
-app.use((req, res, next) => {
-    res.status(404).json({ message: `Ruta no encontrada: ${req.originalUrl}` });
-});
-
-// Middleware de manejo de errores global
-// Este middleware debe ser el ÚLTIMO en tu cadena de middleware
-app.use((err, req, res, next) => {
-    console.error(err.stack); // Loguea el stack de errores para depuración
-    const statusCode = err.statusCode || 500;
-    res.status(statusCode).json({
-        message: err.message || 'Error interno del servidor',
-        // Incluir el stack de errores solo en desarrollo
-        stack: process.env.NODE_ENV === 'production'? null : err.stack
+// --- Configuración para producción y ruta de bienvenida para desarrollo ---
+const NODE_ENV = process.env.NODE_ENV || 'development';
+if (NODE_ENV === 'production') {
+    // Servir archivos estáticos del frontend
+    app.use(express.static(path.join(__dirname, '../frontend/dist')));
+    
+    // CORRECCIÓN CLAVE: Se cambió '/{*any}' a '*' para compatibilidad con Express v4
+    app.get('*', (req, res) => {
+        res.sendFile(path.resolve(__dirname, '../frontend', 'dist', 'index.html'));
     });
+} else {
+    // --- Ruta de bienvenida para desarrollo (MOVIDA DESPUÉS DE LAS RUTAS API) ---
+    app.get('/', (req, res) => { 
+        res.send('API del Sistema de Gestión de Restaurante está funcionando en modo desarrollo...');
+    });
+}
+
+// --- Manejo de rutas no encontradas (404) ---
+app.all('*', (req, res) => {
+    // Añadir logs para depuración
+    console.log(`DEBUG 404 Handler: Original URL: ${req.originalUrl}`);
+    console.log(`DEBUG 404 Handler: Starts with /api: ${req.originalUrl.startsWith('/api')}`);
+
+    if (req.originalUrl.startsWith('/api')) {
+        // Respuesta JSON para rutas API no encontradas
+        res.status(404).json({ 
+            success: false,
+            message: `Ruta API no encontrada: ${req.method} ${req.originalUrl}`
+        });
+    } else {
+        // Respuesta HTML para rutas frontend no encontradas
+        res.status(404).sendFile(path.resolve(__dirname, '../frontend', 'dist', 'index.html'));
+    }
 });
 
-// Iniciar el servidor
+// --- Middlewares de manejo de errores ---
+app.use(errorHandler);
+
+const PORT = process.env.PORT || 5000; // Puerto configurado en 5000
 app.listen(PORT, () => {
-    console.log(`Servidor corriendo en el puerto ${PORT}`);
-    console.log(`Accede a la API en: http://localhost:${PORT}`);
+    console.log(`Servidor ejecutándose en el puerto ${PORT} en modo ${NODE_ENV}`);
 });

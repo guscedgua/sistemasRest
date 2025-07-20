@@ -1,35 +1,36 @@
-// frontend/src/pages/tables/TablesList.jsx
+// frontend/src/pages/TablesList.jsx
 import React, { useState, useEffect } from 'react';
 import axiosInstance from '../../api/axios'; // Asumo que este es tu axios client configurado
 import Spinner from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import TableStatusCard from '../../components/tables/TableStatus';
-import TableForm from '../../pages/tables/TableForm';
+import TableForm from '../../pages/tables/TableForm'; // <-- ¡IMPORTA TableForm!
 import { TABLE_STATUS } from '../../utils/constants';
 import { getTableStatusName } from '../../utils/helpers';
 import { showToast } from '../../components/ui/Toast';
-import { getTables, createTable, updateTable, deleteTable } from '../../api/tables';
+
+// Importa las funciones de la API para mesas
+import { getTables, createTable, updateTable, deleteTable } from '../../api/tables'; // <-- IMPORTA createTable, updateTable, deleteTable
 
 // ASUMIMOS que tienes un AuthContext que proporciona el estado de autenticación
-// Si no lo tienes, deberás crear uno o adaptar esta lógica a cómo manejas el estado global de tu usuario.
 import { useAuth } from '../../context/AuthContext'; // <--- IMPORTANTE: Asegúrate de que esta ruta sea correcta
 
-const TablesList = () => {
-  // --- CAMBIO CLAVE AQUÍ: Usar 'isLoggedIn' en lugar de 'isAuthenticated' ---
+const TablesList = () => { // Renombrado a TablesList para consistencia
+  // --- CORRECCIÓN CLAVE AQUÍ: Cambiado 'isAuthenticated' a 'isLoggedIn' y 'loading' a 'isLoading' ---
   const { isLoggedIn, user, isLoading: authLoading } = useAuth(); // Obtén el estado de autenticación
-  // --- FIN CAMBIO CLAVE ---
+  // --- FIN CORRECCIÓN ---
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedTable, setSelectedTable] = useState(null);
+  const [selectedTable, setSelectedTable] = useState(null); // Para editar estado de mesa existente
   const [newStatus, setNewStatus] = useState('');
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [showTableFormModal, setShowTableFormModal] = useState(false);
-  const [editingTable, setEditingTable] = useState(null);
-  const [tableToDelete, setTableToDelete] = useState(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false); // Modal para cambiar estado
+  const [showTableFormModal, setShowTableFormModal] = useState(false); // <-- NUEVO: Modal para crear/editar mesa
+  const [editingTable, setEditingTable] = useState(null); // <-- NUEVO: Para datos de mesa a editar en TableForm
+  const [tableToDelete, setTableToDelete] = useState(null); // <-- NUEVO: Para modal de eliminación
+  const [isUpdating, setIsUpdating] = useState(false); // Para el spinner de actualización de estado
+  const [isSubmittingForm, setIsSubmittingForm] = useState(false); // <-- NUEVO: Para el spinner del formulario de crear/editar
   const [retryCount, setRetryCount] = useState(0);
 
   // Función para obtener las mesas
@@ -37,18 +38,16 @@ const TablesList = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await getTables();
-      // --- CAMBIO CLAVE AQUÍ: Asegurar que 'response.tables' sea un array ---
-      setTables(Array.isArray(response.tables) ? response.tables : []);
-      // --- FIN CAMBIO CLAVE ---
+      const response = await getTables(); // Asume que getTables en src/api/tables.js funciona
+      // --- CORRECCIÓN CLAVE AQUÍ: Asegurar que 'response.tables' sea un array ---
+      setTables(Array.isArray(response.tables) ? response.tables : []); 
+      // --- FIN CORRECCIÓN ---
       console.log("Mesas cargadas:", response.tables);
     } catch (err) {
       let errorMessage = 'Error al cargar las mesas';
       if (err.response) {
-        if (err.response.status === 401 || err.response.status === 403) {
+        if (err.response.status === 401 || err.response.status === 403) { // 403 también es de auth
           errorMessage = 'No tienes permiso o tu sesión ha expirado. Por favor, inicia sesión.';
-          // El interceptor de Axios ya debería redirigir si el refresh falla.
-          // Aquí solo mostramos el mensaje.
         } else {
           errorMessage = err.response.data?.message || `Error del servidor: ${err.response.status}`;
         }
@@ -58,12 +57,12 @@ const TablesList = () => {
         errorMessage = `Error inesperado: ${err.message}`;
       }
       setError(errorMessage);
-      if (retryCount < 2) { // Limita los reintentos para evitar bucles infinitos
+      if (retryCount < 2) {
         setTimeout(() => {
           setRetryCount(prev => prev + 1);
         }, 3000);
       }
-      showToast(errorMessage, 'error');
+      showToast(errorMessage, 'error'); // Mostrar un toast con el error
     } finally {
       setLoading(false);
     }
@@ -71,20 +70,16 @@ const TablesList = () => {
 
   useEffect(() => {
     // Solo intenta cargar las mesas si la autenticación ha terminado y el usuario está autenticado
-    // --- CAMBIO CLAVE AQUÍ: Usar 'isLoggedIn' en lugar de 'isAuthenticated' ---
     if (!authLoading && isLoggedIn) { 
       fetchTables();
     }
-    // --- FIN CAMBIO CLAVE ---
-    // Si authLoading es false y no está autenticado, no hacemos nada aquí,
-    // el usuario debería ser redirigido por el sistema de autenticación.
   }, [isLoggedIn, authLoading, retryCount]); // Dependencias: isLoggedIn, authLoading y retryCount
 
   // ----- Lógica para el modal de CAMBIO DE ESTADO (existente) -----
   const handleTableClick = (table) => {
     setSelectedTable(table);
     setNewStatus(table.status);
-    setShowStatusModal(true);
+    setShowStatusModal(true); // Abre el modal de estado
   };
 
   const handleStatusChange = async () => {
@@ -116,29 +111,34 @@ const TablesList = () => {
     }
   };
 
-  // ----- Lógica para el modal de CREAR/EDITAR MESA -----
+  // ----- NUEVA Lógica para el modal de CREAR/EDITAR MESA -----
+
+  // Abre el modal para crear una nueva mesa
   const handleOpenNewTableModal = () => {
-    setEditingTable(null);
+    setEditingTable(null); // Asegura que el formulario esté en modo creación
     setShowTableFormModal(true);
   };
 
+  // Abre el modal para editar una mesa existente (puede ser un botón aparte en la TableStatusCard o una acción en la lista)
   const handleEditTable = (table) => {
-    setEditingTable(table);
+    setEditingTable(table); // Carga los datos de la mesa para edición
     setShowTableFormModal(true);
   };
 
+  // Maneja el envío del formulario de creación/edición
   const handleTableFormSubmit = async (tableData) => {
     setIsSubmittingForm(true);
     try {
       if (editingTable) {
+        // Modo edición
         await updateTable(editingTable._id, tableData);
         showToast('Mesa actualizada exitosamente!', 'success');
       } else {
         await createTable(tableData);
         showToast('Mesa creada exitosamente!', 'success');
       }
-      setShowTableFormModal(false);
-      fetchTables();
+      setShowTableFormModal(false); // Cierra el modal
+      fetchTables(); // Recarga la lista de mesas para ver los cambios
     } catch (err) {
       console.error('Error al guardar la mesa:', err);
       let errorMessage = 'Error al guardar la mesa';
@@ -153,17 +153,17 @@ const TablesList = () => {
     }
   };
 
-  // Lógica para el modal de eliminación
+  // Lógica para el modal de eliminación (si lo implementas)
   const handleDeleteTableClick = (tableId) => {
     setTableToDelete(tableId);
   };
 
   const handleConfirmDelete = async () => {
-    setIsSubmittingForm(true);
+    setIsSubmittingForm(true); // Reutilizo el mismo estado para el spinner
     try {
       await deleteTable(tableToDelete);
       showToast('Mesa eliminada exitosamente!', 'success');
-      setTableToDelete(null);
+      setTableToDelete(null); // Cierra el modal de eliminación
       fetchTables();
     } catch (err) {
       console.error('Error al eliminar la mesa:', err);
@@ -179,6 +179,7 @@ const TablesList = () => {
     }
   };
 
+
   // Renderizar diferentes estados
   if (authLoading) {
     return (
@@ -189,11 +190,9 @@ const TablesList = () => {
     );
   }
 
-  // Si no está autenticado y authLoading es false, el interceptor de Axios ya debería haber redirigido
-  // o el usuario necesita iniciar sesión manualmente.
-  // --- CAMBIO CLAVE AQUÍ: Usar 'isLoggedIn' en lugar de 'isAuthenticated' ---
-  if (!isLoggedIn) { 
-  // --- FIN CAMBIO CLAVE ---
+  if (!isLoggedIn) {
+    // Si no está autenticado y authLoading es false, el interceptor de Axios ya debería haber redirigido
+    // o el usuario necesita iniciar sesión manualmente.
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-red-600">
         <p className="text-xl font-semibold">Acceso denegado. Por favor, inicie sesión.</p>
@@ -245,14 +244,15 @@ const TablesList = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Gestión de Mesas</h1>
           <p className="text-gray-600 mt-1">
-            {tables.length} {tables.length === 1 ? 'mesa registrada' : 'mesas registradas'}
+            {/* CORRECCIÓN CLAVE AQUÍ: Añadir verificación defensiva */}
+            {(tables || []).length} {tables?.length === 1 ? 'mesa registrada' : 'mesas registradas'}
           </p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex space-x-3"> {/* Contenedor para los botones */}
           <Button 
-            variant="primary"
+            variant="primary" // <-- Nuevo botón para crear mesa
             onClick={handleOpenNewTableModal}
-            icon="plus"
+            icon="plus" // Asumiendo que tu componente Button puede tomar un prop 'icon'
           >
             Nueva Mesa
           </Button>
@@ -266,7 +266,8 @@ const TablesList = () => {
         </div>
       </div>
       
-      {tables.length > 0 ? (
+      {/* CORRECCIÓN CLAVE AQUÍ: Añadir verificación defensiva */}
+      {(tables || []).length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
           {tables.map(table => (
             <div 
@@ -280,14 +281,14 @@ const TablesList = () => {
                 <Button 
                   variant="info" 
                   size="sm" 
-                  onClick={(e) => { e.stopPropagation(); handleEditTable(table); }}
+                  onClick={(e) => { e.stopPropagation(); handleEditTable(table); }} 
                 >
                   Editar
                 </Button>
                 <Button 
                   variant="danger" 
                   size="sm" 
-                  onClick={(e) => { e.stopPropagation(); handleDeleteTableClick(table._id); }}
+                  onClick={(e) => { e.stopPropagation(); handleDeleteTableClick(table._id); }} 
                 >
                   Eliminar
                 </Button>
@@ -302,13 +303,13 @@ const TablesList = () => {
           <p className="text-gray-500 mb-4">
             Parece que no hay mesas disponibles en este momento.
           </p>
-          <Button variant="primary" onClick={handleOpenNewTableModal}>
+          <Button variant="primary" onClick={handleOpenNewTableModal}> 
             Crear Primera Mesa
           </Button>
         </div>
       )}
       
-      {/* Modal para cambiar estado de la mesa */}
+      {/* Modal para cambiar estado de la mesa (ya existente) */}
       <Modal 
         isOpen={showStatusModal}
         onClose={() => !isUpdating && setShowStatusModal(false)}

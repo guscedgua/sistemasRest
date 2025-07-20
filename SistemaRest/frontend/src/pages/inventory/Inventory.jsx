@@ -4,6 +4,7 @@ import { getInventoryItems } from '../../api/inventory';
 import Spinner from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
 import { useAuth } from '../../context/AuthContext';
+import { Link } from 'react-router-dom'; // <-- ¡Añade esta línea!
 
 const Inventory = () => {
   const { user } = useAuth();

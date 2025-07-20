@@ -1,85 +1,124 @@
-// frontend/src/context/SettingsContext.js
-import { createContext, useContext, useEffect, useState } from 'react';
-import { getSettings } from '../api/settings';
-import { useAuth } from './AuthContext'; // Importa useAuth
+// frontend/src/context/SettingsContext.jsx
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { getSettings, updateSettings as updateSettingsAPI } from '../api/settings';
+import { useAuth } from './AuthContext';
 
-const SettingsContext = createContext();
+const SettingsContext = createContext(null);
 
 export const SettingsProvider = ({ children }) => {
-  const [settings, setSettings] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const { user } = useAuth(); // Obtiene el usuario del AuthContext
+    const [settings, setSettings] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const { user, isLoggedIn, loading: authLoading } = useAuth(); 
 
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await getSettings();
-      setSettings(response.settings);
-      setError(null);
-    } catch (err) {
-      setError('Error al cargar la configuración del sistema');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const fetchSettings = async () => {
+        try {
+            setLoading(true);
+            const response = await getSettings();
+            setSettings(response.data.settings);
+            setError(null);
+        } catch (err) {
+            console.error('Error al cargar la configuración del sistema:', err);
+            if (!authLoading && isLoggedIn) {
+                setError('Error al cargar la configuración del sistema. Por favor, inténtelo de nuevo.');
+            } else if (!authLoading && !isLoggedIn) {
+                setError('No está autenticado o no tiene permisos para cargar la configuración.');
+            } else {
+                setError(null);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const updateSettings = async (newSettings) => {
-    try {
-      // Aquí normalmente llamarías a la API para actualizar (ej: await updateSettingsAPI(newSettings);)
-      // Luego, actualizarías el estado local con la respuesta del servidor.
-      // Por ahora, solo actualizamos localmente
-      setSettings(newSettings); 
-    } catch (err) {
-      console.error('Error al actualizar configuración:', err);
-      throw err;
-    }
-  };
+    const updateSystemSettings = async (newSettingsData) => {
+        try {
+            const response = await updateSettingsAPI(newSettingsData);
+            setSettings(response.data.settings);
+            setError(null);
+            return response.data.settings;
+        } catch (err) {
+            console.error('Error al actualizar configuración:', err);
+            setError('Error al actualizar configuración. Por favor, inténtelo de nuevo.');
+            throw err;
+        }
+    };
 
-  useEffect(() => {
-    // Solo intenta cargar la configuración si el usuario está disponible (autenticado)
-    // o si la ruta de settings permite acceso público sin usuario (menos común para admin/supervisor)
-    // Si SettingsContext depende de la autenticación, esta es una buena práctica.
-    if (user || !loading) { // O si quieres que cargue incluso si no hay usuario (ej. para settings públicos)
-      fetchSettings();
-    }
-  }, [user]); // Vuelve a ejecutar cuando el usuario cambia (ej. después del login)
+    // --- CORRECCIÓN CRÍTICA AQUÍ ---
+    useEffect(() => {
+        // Carga la configuración solo después de que se resuelva el estado de autenticación inicial
+        // Y SOLO SI el usuario está autenticado.
+        if (!authLoading && isLoggedIn) { // <-- ¡DESCOMENTADO Y EN USO!
+            console.log('SettingsContext: Auth listo e isLoggedIn es TRUE. Cargando settings...');
+            fetchSettings();
+        } else if (!authLoading && !isLoggedIn) {
+             console.log('SettingsContext: Auth listo e isLoggedIn es FALSE. No se cargan settings.');
+             // Puedes limpiar settings si el usuario se desloguea
+             setSettings(null); 
+             setLoading(false);
+        }
+    }, [authLoading, isLoggedIn]); // Dependencias: se ejecuta cuando authLoading o isLoggedIn cambian
 
-  const value = {
-    settings,
-    loading,
-    error,
-    updateSettings,
-    refreshSettings: fetchSettings,
-    isModuleEnabled: (moduleName) => {
-      if (!settings || !settings.moduleAccess) return false;
-      // Convertir el Map a un objeto si es necesario, o acceder directamente
-      const moduleAccessArray = settings.moduleAccess[moduleName]; // Asumiendo que moduleAccess es un objeto o Map accesible
-      
-      // Si moduleAccess es un Map real de Mongoose, se accede con .get()
-      // Si es un objeto JSON plano (como suele ser después de la deserialización), se accede con [key]
-      // Aquí asumo que después de la respuesta de la API, moduleAccess es un objeto JSON o similar.
-      const rolesAllowed = Array.isArray(moduleAccessArray) ? moduleAccessArray : (settings.moduleAccess.get ? settings.moduleAccess.get(moduleName) : undefined);
+    const isModuleEnabled = useCallback((moduleName) => {
+        // --- CONSOLE.LOGS DE DEPURACIÓN (MANTÉNLOS PARA VERIFICAR) ---
+        console.groupCollapsed(`isModuleEnabled('${moduleName}')`);
+        console.log('  1. Estado actual del Contexto Settings:', { settings, loading, error });
+        console.log('  2. Estado actual del Contexto Auth:', { user, isLoggedIn, authLoading });
+        console.log('  3. Rol del usuario (user?.role):', user?.role);
 
-      if (!rolesAllowed) return false;
+        if (!settings || !settings.moduleAccess) {
+            console.log(`  4. Módulo ${moduleName} NO habilitado: 'settings' o 'settings.moduleAccess' es nulo/indefinido.`);
+            console.groupEnd();
+            return false;
+        }
 
-      return rolesAllowed.includes('*') || 
-             (user && rolesAllowed.includes(user.role)); // Usamos 'user' que ahora viene del AuthContext
-    }
-  };
+        const rolesAllowed = settings.moduleAccess[moduleName] || [];
+        console.log(`  5. 'rolesAllowed' para '${moduleName}':`, rolesAllowed);
 
-  return (
-    <SettingsContext.Provider value={value}>
-      {children}
-    </SettingsContext.Provider>
-  );
+        if (!Array.isArray(rolesAllowed)) {
+            console.warn(`  6. moduleAccess.${moduleName} NO es un array en la configuración. Revisa el backend.`);
+            console.groupEnd();
+            return false;
+        }
+
+        if (rolesAllowed.includes('*')) {
+            console.log(`  7. Módulo ${moduleName} HABILITADO: Contiene comodín '*'.`);
+            console.groupEnd();
+            return true;
+        }
+
+        if (!isLoggedIn) {
+            console.log(`  8. Módulo ${moduleName} NO habilitado: Usuario NO logueado.`);
+            console.groupEnd();
+            return false;
+        }
+
+        const enabled = rolesAllowed.includes(user?.role);
+        console.log(`  9. ¿Rol '${user?.role}' incluido en [${rolesAllowed.join(', ')}]? -> ${enabled}`);
+        console.groupEnd();
+        return enabled;
+    }, [settings, isLoggedIn, user, loading, authLoading]);
+
+    const value = {
+        settings,
+        loading,
+        error,
+        updateSystemSettings,
+        refreshSettings: fetchSettings,
+        isModuleEnabled
+    };
+
+    return (
+        <SettingsContext.Provider value={value}>
+            {children}
+        </SettingsContext.Provider>
+    );
 };
 
 export const useSettings = () => {
-  const context = useContext(SettingsContext);
-  if (!context) {
-    throw new Error('useSettings debe usarse dentro de un SettingsProvider');
-  }
-  return context;
+    const context = useContext(SettingsContext);
+    if (!context) {
+        throw new Error('useSettings debe usarse dentro de un SettingsProvider');
+    }
+    return context;
 };

@@ -14,7 +14,7 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        // rewrite: (path) => path.replace(/^\/api/, ''),
       },
       // Configura proxy para rutas del frontend
       '^/(settings|tables|orders|dashboard)/': {

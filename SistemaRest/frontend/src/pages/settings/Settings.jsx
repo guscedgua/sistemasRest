@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getSettings, updateSettings } from '../../api/settings';
 import Spinner from '../../components/ui/Spinner';
+import useNotification from '../../hooks/useNotification';
 
 const Settings = () => {
   const [formData, setFormData] = useState({

@@ -2,12 +2,9 @@ import React, { useState } from 'react';
 import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaUtensils, FaReceipt, FaChartLine } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import axios from 'axios';
 import Spinner from '../../components/ui/Spinner';
 
 const RestaurantLogin = () => {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,7 +13,7 @@ const RestaurantLogin = () => {
   const [success, setSuccess] = useState('');
 
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login } = useAuth(); // Destructure the login function from useAuth
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,34 +22,15 @@ const RestaurantLogin = () => {
     setSuccess('');
 
     try {
-      const response = await axios.post(
-        `${API_URL}/auth/login`, 
-        { email, password }
-      );
-      
+      console.log('RestaurantLogin: Attempting login with:', { email, password }); // Confirm values before sending
+      await login(email, password); // Call the login function from AuthContext
+
       setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
-      
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      login(user, token);
-      
       setTimeout(() => navigate('/dashboard'), 1500);
 
     } catch (err) {
-      let errorMessage = 'Error al iniciar sesión. Verifica tus credenciales.';
-      
-      if (err.response) {
-        if (err.response.status === 401) {
-          errorMessage = 'Credenciales inválidas. Por favor verifica.';
-        } else if (err.response.data?.message) {
-          errorMessage = err.response.data.message;
-        }
-      } else if (err.request) {
-        errorMessage = 'No se recibió respuesta del servidor. Verifica tu conexión.';
-      }
-      
-      setError(errorMessage);
+      console.error('RestaurantLogin: Login failed:', err.message); // Log the error message
+      setError(err.message || 'Error al iniciar sesión. Verifica tus credenciales.');
     } finally {
       setLoading(false);
     }
@@ -82,7 +60,7 @@ const RestaurantLogin = () => {
         flexDirection: 'column',
         border: 'none'
       }}>
-        {/* Panel Izquierdo */}
+        {/* Panel Izquierdo: Información del Producto/App */}
         <div style={{
           padding: '2rem 3rem',
           display: 'flex',
@@ -142,7 +120,7 @@ const RestaurantLogin = () => {
           </div>
         </div>
 
-        {/* Panel Derecho - Formulario */}
+        {/* Panel Derecho - Formulario de Inicio de Sesión */}
         <div style={{
           padding: '2rem 3rem',
           display: 'flex',
@@ -166,6 +144,7 @@ const RestaurantLogin = () => {
               </p>
             </div>
 
+            {/* Mensajes de error y éxito */}
             {error && (
               <div style={{
                 backgroundColor: '#fee2e2',
@@ -195,6 +174,7 @@ const RestaurantLogin = () => {
             )}
 
             <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.5rem' }}>
+              {/* Campo de Email */}
               <div>
                 <label style={{
                   display: 'block',
@@ -239,6 +219,8 @@ const RestaurantLogin = () => {
                     }}
                     placeholder="ejemplo@restaurante.com"
                     value={email}
+                    // *** CORRECCIÓN CLAVE AQUÍ ***
+                    // Asegúrate de que estás usando e.target.value
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     disabled={loading}
@@ -246,6 +228,7 @@ const RestaurantLogin = () => {
                 </div>
               </div>
 
+              {/* Campo de Contraseña */}
               <div>
                 <label style={{
                   display: 'block',
@@ -290,6 +273,8 @@ const RestaurantLogin = () => {
                     }}
                     placeholder="••••••••"
                     value={password}
+                    // *** CORRECCIÓN CLAVE AQUÍ ***
+                    // Asegúrate de que estás usando e.target.value
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={loading}
@@ -319,6 +304,7 @@ const RestaurantLogin = () => {
                 </div>
               </div>
 
+              {/* Botón de Iniciar Sesión */}
               <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
                 <button
                   type="submit"

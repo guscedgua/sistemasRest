@@ -1,9 +1,8 @@
-// src/pages/auth/Login.jsx
 import React, { useState } from 'react';
-import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaUtensils, FaReceipt, FaChartLine } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import Spinner from '../../components/ui/Spinner';
+import { useAuth } from '../../context/AuthContext'; // Asegúrate que la ruta sea correcta
+import Spinner from '../../components/ui/Spinner'; // Asumiendo que tienes un componente Spinner
+import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaUtensils, FaReceipt, FaChartLine } from 'react-icons/fa'; // Asegúrate de importar todos los iconos que usas
 
 const RestaurantLogin = () => {
   const [email, setEmail] = useState('');
@@ -14,7 +13,7 @@ const RestaurantLogin = () => {
   const [success, setSuccess] = useState('');
 
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login } = useAuth(); // Usamos la función 'login' del AuthContext
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,11 +22,16 @@ const RestaurantLogin = () => {
     setSuccess('');
 
     try {
-      // Recibe la ruta de redirección desde login()
-      const redirectPath = await login(email, password);
-      
+      // --- CAMBIO CLAVE AQUÍ: Pasar 'email' y 'password' como argumentos SEPARADOS ---
+      // La función 'login' en AuthContext espera dos strings: email y password.
+      await login(email, password); // Correcto: pasa las cadenas 'email' y 'password'
+
       setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
-      setTimeout(() => navigate(redirectPath), 1500);
+      // Si AuthContext no maneja la redirección internamente para el login,
+      // mantén esta línea. Si sí lo hace, puedes eliminarla.
+      // Basado en tu AuthContext.jsx anterior, el login no redirige, así que esta línea es necesaria.
+      setTimeout(() => navigate('/dashboard'), 1500); 
+
     } catch (err) {
       // Maneja diferentes tipos de errores
       let errorMessage = 'Error desconocido al iniciar sesión.';

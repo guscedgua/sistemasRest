@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React</title>
+    <!-- Aquí es donde se agrega el script de Tailwind CSS desde el CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Se importa la fuente Inter para mantener la consistencia */
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+      
+      /* Se añade el estilo de fuente a los elementos principales */
+      html, body, #root {
+        font-family: 'Inter', sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.jsx"></script>
+  </body>
+</html>
